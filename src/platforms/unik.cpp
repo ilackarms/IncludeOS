@@ -32,8 +32,8 @@ unik::Client::Registered_event unik::Client::on_registered_{nullptr};
  **/
 void unik::Client::register_instance(net::Inet4 &inet, const net::UDP::port_t port) {
 
-    //let OS::start know it shouldn't start service yet
-//    INFO("Unik client", "Turned off OS::ready_: %d", OS::ready_);
+//    let OS::start know it shouldn't start service yet
+    INFO("Unik client", "Turned off OS::ready_: %d", OS::ready_);
 
     INFO("Unik client", "Initializing Unik registration service");
     INFO("Unik client", "Listening for UDP hearbeat on %s:%i", inet.ip_addr().str().c_str(), port);
@@ -109,8 +109,8 @@ void unik::Client::register_instance(net::Inet4 &inet, const net::UDP::port_t po
                     if (on_registered_)
                         on_registered_();
 
-//                    //stop blocking OS::start()
-//                    OS::ready_ = true;
+                    //unblock OS::start()
+                    OS::ready_ = true;
 
                     return;
                 }

@@ -34,6 +34,7 @@
  */
 class OS {
 public:
+  static bool ready_;
   using print_func  = delegate<void(const char*, size_t)>;
   using Custom_init = delegate<void()>;
 

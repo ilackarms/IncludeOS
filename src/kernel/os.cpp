@@ -45,6 +45,7 @@ extern uintptr_t _ELF_END_;
 extern uintptr_t _MAX_MEM_MIB_;
 
 bool OS::power_   {true};
+bool OS::ready_ = true;
 MHz  OS::cpu_mhz_ {1000};
 RTC::timestamp_t OS::booted_at_ {0};
 uintptr_t OS::low_memory_size_ {0};
@@ -245,6 +246,12 @@ void OS::start(uint32_t boot_magic, uint32_t boot_addr) {
       MYINFO("Unknown exception when calling custom initialization function");
     }
   }
+
+  MYINFO("Waiting for ready: %d", OS::ready_);
+  while(!OS::ready_) {
+      OS::block();
+  }
+
   // Everything is ready
   MYINFO("Starting %s", Service::name().c_str());
   FILLINE('=');
