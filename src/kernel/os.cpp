@@ -234,6 +234,8 @@ void OS::start(uint32_t boot_magic, uint32_t boot_addr) {
   os_cycles_total = &Statman::get().create(
       Stat::UINT64, std::string("cpu0.cycles_total")).get_uint64();
 
+    OS::ready_ = false;
+
   // Trying custom initialization functions
   MYINFO("Calling custom initialization functions");
   for (auto init : custom_init_) {

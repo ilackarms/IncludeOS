@@ -33,6 +33,7 @@ unik::Client::Registered_event unik::Client::on_registered_{nullptr};
 void unik::Client::register_instance(net::Inet4 &inet, const net::UDP::port_t port) {
 
 //    let OS::start know it shouldn't start service yet
+//    OS::ready_ = false;
     INFO("Unik client", "Turned off OS::ready_: %d", OS::ready_);
 
     INFO("Unik client", "Initializing Unik registration service");
