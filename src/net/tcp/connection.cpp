@@ -42,10 +42,9 @@ Connection::Connection(TCP& host, port_t local_port, Socket remote) :
   read_request(),
   writeq(),
   on_disconnect_({this, &Connection::default_on_disconnect}),
-  bytes_rx_(0), bytes_tx_(0),
-  queued_(false),
   rtx_timer({this, &Connection::rtx_timeout}),
-  timewait_timer({this, &Connection::timewait_timeout})
+  timewait_timer({this, &Connection::timewait_timeout}),
+  queued_(false)
 {
   setup_congestion_control();
   debug("<Connection> %s created\n", to_string().c_str());
@@ -100,6 +99,7 @@ size_t Connection::receive(const uint8_t* data, size_t n, bool PUSH) {
   auto& buf = read_request.buffer;
   size_t received{0};
   while(n) {
+    if (buf.empty()) buf.renew();
     auto read = receive(buf, data+received, n);
     // nothing was read to buffer
     if(!buf.advance(read)) {
@@ -109,7 +109,7 @@ size_t Connection::receive(const uint8_t* data, size_t n, bool PUSH) {
       debug2("<Connection::receive> Buffer full - signal user\n");
       read_request.callback(buf.buffer, buf.size());
       // renew the buffer, releasing the old one
-      buf.renew();
+      buf.clear();
     }
     n -= read;
     received += read;
@@ -119,14 +119,11 @@ size_t Connection::receive(const uint8_t* data, size_t n, bool PUSH) {
 
   // end of data, signal the user
   if(PUSH) {
-    buf.push = PUSH;
     debug2("<Connection::receive> PUSH present - signal user\n");
     read_request.callback(buf.buffer, buf.size());
-    // renew the buffer, releasing the old one
-    buf.renew();
+    // free buffer
+    buf.clear();
   }
-
-  bytes_rx_ += received;
 
   return received;
 }
@@ -315,15 +312,14 @@ void Connection::close() {
     if(is_state(Closed::instance()))
       signal_close();
   } catch(const TCPException& err) {
-    Ensures(on_error_);
-    signal_error(err);
+    // might not be set
+    if (on_error_) signal_error(err);
   }
 }
 
 void Connection::receive_disconnect() {
   assert(!read_request.buffer.empty());
   auto& buf = read_request.buffer;
-  buf.push = true;
   read_request.callback(buf.buffer, buf.size());
 }
 
@@ -375,6 +371,11 @@ bool Connection::is_listening() const {
   return is_state(Listen::instance());
 }
 
+__attribute__((weak))
+void Connection::deserialize_from(void*) {}
+__attribute__((weak))
+void Connection::serialize_to(void*) {}
+
 Connection::~Connection() {
   // Do all necessary clean up.
   // Free up buffers etc.
@@ -410,8 +411,6 @@ void Connection::transmit(Packet_ptr packet) {
   //printf("<TCP::Connection::transmit> rseq=%u rack=%u\n",
   //  packet->seq() - cb.ISS, packet->ack() - cb.IRS);
   debug2("<TCP::Connection::transmit> TX %s\n", packet->to_string().c_str());
-
-  bytes_tx_ += packet->tcp_data_length();
 
   host_.transmit(std::move(packet));
   if(packet->should_rtx() and !rtx_timer.is_running()) {
@@ -451,7 +450,7 @@ bool Connection::handle_ack(const Packet& in) {
   // new ack
   else if(in.ack() >= cb.SND.UNA) {
 
-    if( cb.SND.WL1 < in.seq() or ( cb.SND.WL1 == in.seq() and cb.SND.WL2 <= in.ack() ) )
+    if( (cb.SND.WL1 < in.seq() or ( cb.SND.WL1 == in.seq() and cb.SND.WL2 <= in.ack() )) and cb.SND.WND != in.win() )
     {
       cb.SND.WND = in.win();
       cb.SND.WL1 = in.seq();
@@ -459,10 +458,8 @@ bool Connection::handle_ack(const Packet& in) {
       //printf("<Connection::handle_ack> Window update (%u)\n", cb.SND.WND);
     }
 
-    acks_rcvd_++;
-
-    debug("<Connection::handle_ack> New ACK#%u: %u FS: %u %s\n", acks_rcvd_,
-      in.ack() - cb.ISS, flight_size(), fast_recovery ? "[RECOVERY]" : "");
+    debug2("<Connection::handle_ack> New ACK: %u FS: %u UW: %u, %s\n",
+      in.ack() - cb.ISS, flight_size(), usable_window(), fast_recovery ? "[RECOVERY]" : "");
 
     // [RFC 6582] p. 8
     prev_highest_ack_ = cb.SND.UNA;
@@ -508,8 +505,10 @@ bool Connection::handle_ack(const Packet& in) {
 
       // try to write
       //if(can_send() and acks_rcvd_ % 2 == 1)
-      if(can_send())
+      if(can_send()) {
+        debug2("<Connection::handle_ack> Can send UW: %u SMSS: %u\n", usable_window(), SMSS());
         send_much();
+      }
 
       // if data, let state continue process
       if(in.has_tcp_data() or in.isset(FIN))
@@ -663,7 +662,9 @@ void Connection::retransmit() {
   // If not, check if there is data and retransmit
   else if(writeq.size()) {
     auto& buf = writeq.una();
-    fill_packet(*packet, (char*)buf.pos(), buf.remaining, cb.SND.UNA);
+    debug2("<Connection::retransmit> With data (wq.sz=%u) buf.unacked=%u\n",
+      writeq.size(), buf.length() - buf.acknowledged);
+    fill_packet(*packet, (char*)buf.begin() + buf.acknowledged, buf.length() - buf.acknowledged, cb.SND.UNA);
   }
   // if no data
   else {
@@ -676,10 +677,6 @@ void Connection::retransmit() {
   }
 
   //printf("<TCP::Connection::retransmit> rseq=%u \n", packet->seq() - cb.ISS);
-  debug("<TCP::Connection::retransmit> RT %s\n", packet->to_string().c_str());
-
-  // count retranmissions to bytes transmitted?
-  bytes_tx_ += packet->tcp_data_length();
 
   /*
     Every time a packet containing data is sent (including a

@@ -22,8 +22,8 @@
 using namespace net;
 
 // return the "currently selected" networking stack
-static Inet4& net_stack() {
-  return Inet4::stack<> ();
+static auto& net_stack() {
+  return Inet4::stack();
 }
 
 int TCP_FD::read(void* data, size_t len)
@@ -74,13 +74,13 @@ int TCP_FD::connect(const struct sockaddr* address, socklen_t address_len)
   }
 
   if (address_len != sizeof(sockaddr_in)) {
-    errno = EAFNOSUPPORT; // checkme?
+    errno = EINVAL; // checkme?
     return -1;
   }
   auto* inaddr = (sockaddr_in*) address;
 
   auto addr = ip4::Addr(inaddr->sin_addr.s_addr);
-  auto port = inaddr->sin_port;
+  auto port = ::htons(inaddr->sin_port);
 
   printf("[*] connecting to %s:%u...\n", addr.to_string().c_str(), port);
   auto outgoing = net_stack().tcp().connect({addr, port});
@@ -153,7 +153,7 @@ int TCP_FD::bind(const struct sockaddr *addr, socklen_t addrlen)
   }
   // verify socket address
   if (addrlen != sizeof(sockaddr_in)) {
-    errno = EAFNOSUPPORT;
+    errno = EINVAL;
     return -1;
   }
   auto* sin = (sockaddr_in*) addr;
@@ -162,11 +162,13 @@ int TCP_FD::bind(const struct sockaddr *addr, socklen_t addrlen)
     errno = EAFNOSUPPORT;
     return -1;
   }
+  // use sin_port for bind
+  // its network order ... so swap that shit:
+  uint16_t port = ::htons(sin->sin_port);
   // ignore IP address (FIXME?)
   /// verify that the IP is "local"
   try {
-    // use sin_port for bind
-    auto& L = net_stack().tcp().bind(sin->sin_port);
+    auto& L = net_stack().tcp().bind(port);
     // remove existing listener
     if (ld) {
       int ret = ld->close();
@@ -176,11 +178,43 @@ int TCP_FD::bind(const struct sockaddr *addr, socklen_t addrlen)
     // create new one
     ld = new TCP_FD_Listen(L);
     return 0;
-    
+
   } catch (...) {
     errno = EADDRINUSE;
     return -1;
   }
+}
+int TCP_FD::shutdown(int mode)
+{
+  if (!cd) {
+    errno = EINVAL;
+    return -1;
+  }
+  return cd->shutdown(mode);
+}
+
+/// socket default handler getters
+
+TCP_FD::on_read_func TCP_FD::get_default_read_func()
+{
+  if (cd) {
+    return {cd, &TCP_FD_Conn::recv_to_ringbuffer};
+  }
+  if (ld) {
+    return
+    [this] (net::tcp::buffer_t, size_t) {
+      // what to do here?
+    };
+  }
+  throw std::runtime_error("Invalid socket");
+}
+TCP_FD::on_write_func TCP_FD::get_default_write_func()
+{
+  return [] {};
+}
+TCP_FD::on_except_func TCP_FD::get_default_except_func()
+{
+  return [] {};
 }
 
 /// socket as connection
@@ -230,7 +264,7 @@ ssize_t TCP_FD_Conn::recv(void* dest, size_t len, int)
   // read some bytes from readq
   int bytes = readq.read((char*) dest, len);
   if (bytes) return bytes;
-  
+
   bool done = false;
   // block and wait for more
   conn->on_read(len,
@@ -260,6 +294,27 @@ int TCP_FD_Conn::close()
   }
   return 0;
 }
+int TCP_FD_Conn::shutdown(int mode)
+{
+  if (not conn->is_connected()) {
+    errno = ENOTCONN;
+    return -1;
+  }
+  switch (mode) {
+  case SHUT_RDRW:
+    conn->close();
+    return 0;
+  case SHUT_RD:
+    printf("Ignoring shutdown(SHUT_RD)\n");
+    return 0;
+  case SHUT_RW:
+    printf("Ignoring shutdown(SHUT_RW)\n");
+    return 0;
+  default:
+    errno = EINVAL;
+    return -1;
+  }
+}
 
 /// socket as listener
 
@@ -283,12 +338,17 @@ int TCP_FD_Listen::accept(struct sockaddr *__restrict__ addr, socklen_t *__restr
   while (connq.empty()) {
     OS::block();
   }
-  // create TCP socket
+  // retrieve connection from queue
+  auto sock = connq.back();
+  connq.pop_back();
+  // make sure socket is connected, as promised
+  if (not sock->is_connected()) {
+    errno = ENOTCONN;
+    return -1;
+  }
+  // create connected TCP socket
   auto& fd = FD_map::_open<TCP_FD>();
-  // assign existing connection to socket
-  auto sock = connq.front();
   fd.cd = new TCP_FD_Conn(sock);
-  connq.pop_front();
   // set address and length
   auto* sin = (sockaddr_in*) addr;
   sin->sin_family      = AF_INET;

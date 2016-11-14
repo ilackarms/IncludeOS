@@ -30,7 +30,8 @@ unik::Client::Registered_event unik::Client::on_registered_{nullptr};
 /**
  * UniK instance listener hearbeat / http registration
  **/
-void unik::Client::register_instance(net::Inet4 &inet, const net::UDP::port_t port) {
+
+void unik::Client::register_instance(net::Inet<net::IP4>& inet, const net::UDP::port_t port) {
 
 //    let OS::start know it shouldn't start service yet
 //    OS::ready_ = false;

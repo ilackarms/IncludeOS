@@ -37,7 +37,7 @@ namespace net {
 
   class TCP {
   public:
-    using IPStack         = Inet<LinkLayer,IP4>;
+    using IPStack         = IP4::Stack;
 
     using CleanupCallback = tcp::Connection::CleanupCallback;
     using ConnectCallback = tcp::Connection::ConnectCallback;
@@ -85,6 +85,11 @@ namespace net {
 
     void connect(tcp::Address address, tcp::port_t port, ConnectCallback callback)
     { connect({address, port}, callback); }
+
+    /*
+     * Insert existing connection
+     */
+    void insert_connection(tcp::Connection_ptr);
 
     /*
       Receive packet from network layer (IP).

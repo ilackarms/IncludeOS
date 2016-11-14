@@ -109,6 +109,15 @@ void TCP::connect(Socket remote, Connection::ConnectCallback callback) {
   connection->on_connect(callback).open(true);
 }
 
+void TCP::insert_connection(Connection_ptr conn)
+{
+  connections_.emplace(
+      std::piecewise_construct,
+      std::forward_as_tuple(conn->local_port(), conn->remote()),
+      std::forward_as_tuple(conn));
+}
+
+
 seq_t TCP::generate_iss() {
   // Do something to get a iss.
   return rand();
@@ -326,8 +335,7 @@ void TCP::drop(const tcp::Packet&) {
 void TCP::transmit(tcp::Packet_ptr packet) {
   // Generate checksum.
   packet->set_checksum(TCP::checksum(*packet));
-  //if(packet->has_data())
-  //printf("<TCP::transmit> S: %u\n", packet->seq());
+  debug2("<TCP::transmit> %s\n", packet->to_string().c_str());
 
   // Stat increment bytes transmitted and packets transmitted
   bytes_tx_ += packet->tcp_data_length();

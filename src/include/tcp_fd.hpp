@@ -19,24 +19,24 @@
 #ifndef INCLUDE_TCP_FD_HPP
 #define INCLUDE_TCP_FD_HPP
 
-#include "fd.hpp"
-#include <net/inet4>
+#include "sockfd.hpp"
 #include <ringbuffer>
 
 struct TCP_FD_Conn;
 struct TCP_FD_Listen;
 
-class TCP_FD : public FD {
+class TCP_FD : public SockFD {
 public:
   using id_t = int;
 
   explicit TCP_FD(int id)
-    : FD(id)
+    : SockFD(id)
   {}
 
   int     read(void*, size_t) override;
   int     write(const void*, size_t) override;
   int     close() override;
+  
   /** SOCKET */
   int     bind(const struct sockaddr *, socklen_t) override;
   int     listen(int) override;
@@ -45,6 +45,8 @@ public:
 
   ssize_t send(const void *, size_t, int fl) override;
   ssize_t recv(void*, size_t, int fl) override;
+  
+  int     shutdown(int) override;
 
   bool is_listener() const noexcept {
     return ld != nullptr;
@@ -53,6 +55,10 @@ public:
     return cd != nullptr;
   }
 
+  on_read_func   get_default_read_func()   override;
+  on_write_func  get_default_write_func()  override;
+  on_except_func get_default_except_func() override;
+  
   ~TCP_FD() {}
 private:
   TCP_FD_Conn* cd = nullptr;
@@ -75,6 +81,7 @@ struct TCP_FD_Conn
   ssize_t send(const void *, size_t, int fl);
   ssize_t recv(void*, size_t, int fl);
   int     close();
+  int     shutdown(int);
   
   net::tcp::Connection_ptr conn;
   RingBuffer readq;
@@ -89,6 +96,7 @@ struct TCP_FD_Listen
   int close();
   int listen(int);
   int accept(struct sockaddr *__restrict__, socklen_t *__restrict__);
+  int shutdown(int);
   
   net::tcp::Listener& listener;
   std::deque<net::tcp::Connection_ptr> connq;

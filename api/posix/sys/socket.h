@@ -96,6 +96,15 @@ struct linger
 #define AF_INET6        2
 #define AF_UNSPEC       3
 
+#define MSG_CTRUNC      0
+#define MSG_DONTROUTE   1
+#define MSG_EOR         2
+#define MSG_OOB         3
+#define MSG_NOSIGNAL    4
+#define MSG_PEEK        5
+#define MSG_TRUNC       6
+#define MSG_WAITALL     7
+
 
 int     accept(int socket, struct sockaddr *address,
                socklen_t *address_len);
@@ -124,6 +133,20 @@ int     shutdown(int socket, int how);
 int     socket(int domain, int type, int protocol);
 int     socketpair(int domain, int type, int protocol,
                    int socket_vector[2]);
+
+enum
+{
+  SHUT_RD = 0,
+  SHUT_RW,
+  SHUT_RDRW
+};
+
+#define INVALID_SOCKET          ((SOCKET)(~0))
+#define SOCKET_ERROR            (-1)
+
+#define SD_RECEIVE SHUT_RD
+#define SD_SEND SHUT_WR
+#define SD_BOTH SHUT_RDWR
 
 #include "../netinet/in.h"
 
