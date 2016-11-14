@@ -6,11 +6,11 @@
 # $ export INCLUDEOS_SRC=your/github/cloned/IncludeOS
 export INCLUDEOS_SRC=${INCLUDEOS_SRC-`pwd`}
 
+echo "uniK installation"
+
 SYSTEM=`uname -s`
 
 RELEASE=$([ $SYSTEM = "Darwin" ] && echo `sw_vers -productVersion` || echo `lsb_release -is`)
-
-[ "$RELEASE" = "neon" ] && RELEASE="Ubuntu"
 
 check_os_support() {
     SYSTEM=$1
@@ -75,13 +75,6 @@ elif [ "Linux" = "$SYSTEM" ]; then
     if ! ./etc/install_from_bundle.sh; then
         echo -e ">>> Sorry <<< \n\
 Could not install from bundle. \n"
-        exit 1
-    fi
-
-    echo
-    if ! ./etc/create_bridge.sh; then
-        echo -e ">>> Sorry <<< \n\
-Could not create or configure bridge. \n"
         exit 1
     fi
 
